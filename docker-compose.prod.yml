@@ -1,0 +1,54 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Distributed Mean — Production / Cloud Stack
+#
+# Overrides the base docker-compose.yml to point at external managed services.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+#
+# Required environment variables (set in your CI/CD or platform secrets):
+#   REDIS_URL          — e.g. rediss://user:pass@my-redis.cloud:6380
+#   DATABASE_URL       — e.g. postgresql://user:pass@my-pg.cloud:5432/dm
+#   MINIO_ENDPOINT     — e.g. https://s3.amazonaws.com  (or omit for real S3)
+#   MINIO_BUCKET       — your bucket name
+#   AWS_ACCESS_KEY_ID  — your IAM key
+#   AWS_SECRET_ACCESS_KEY
+#   AWS_REGION
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # Remove local infrastructure services (using cloud equivalents)
+  redis:
+    profiles: ["disabled"]
+
+  postgres:
+    profiles: ["disabled"]
+
+  minio:
+    profiles: ["disabled"]
+
+  api:
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: ${DATABASE_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-https://s3.amazonaws.com}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+    # Remove local deps
+    depends_on: {}
+
+  worker:
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-https://s3.amazonaws.com}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      API_URL: ${API_URL:-http://api:3000}
+    depends_on: {}
+    deploy:
+      replicas: ${WORKER_COUNT:-8}
