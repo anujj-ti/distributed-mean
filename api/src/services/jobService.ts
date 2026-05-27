@@ -16,7 +16,7 @@ export async function createJob(f: number, c: number): Promise<Job> {
   const jobId = uuidv4();
   const batchCount = Math.ceil(f / BATCH_SIZE);
 
-  const result = await db.query<Job>(
+  const result = await db.query<Record<string, unknown>>(
     `INSERT INTO jobs (id, f, c, status, batch_count)
      VALUES ($1, $2, $3, 'generating', $4)
      RETURNING id, f, c, status, batch_count,
@@ -25,7 +25,7 @@ export async function createJob(f: number, c: number): Promise<Job> {
     [jobId, f, c, batchCount]
   );
 
-  const job = rowToJob(result.rows[0]);
+  const job = rowToJob(result.rows[0]!);
 
   broadcastLog('info', `Job ${jobId} created: F=${f}, C=${c}, batches=${batchCount}`);
   broadcast({ type: 'job_update', job });

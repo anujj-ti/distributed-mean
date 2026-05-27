@@ -1,5 +1,4 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 import { getSystemStats } from '../services/systemService.js';
 import { addSSEClient, broadcast } from '../lib/sse.js';
 
@@ -15,8 +14,10 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// GET /events — SSE stream
-router.get('/events', (req: Request, res: Response) => {
+// GET /system/events — SSE stream
+router.get('/events', sseHandler);
+
+export function sseHandler(req: Request, res: Response): void {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -44,6 +45,6 @@ router.get('/events', (req: Request, res: Response) => {
   req.on('close', () => {
     clearInterval(keepAlive);
   });
-});
+}
 
 export default router;

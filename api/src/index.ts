@@ -4,7 +4,7 @@ import { initSchema } from './db/index.js';
 import { connectRedis } from './lib/redis.js';
 import { ensureBucket } from './lib/storage.js';
 import jobsRouter from './routes/jobs.js';
-import systemRouter from './routes/system.js';
+import systemRouter, { sseHandler } from './routes/system.js';
 import internalRouter from './routes/internal.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { startReaper } from './services/reaperService.js';
@@ -37,10 +37,7 @@ async function main(): Promise<void> {
   // API routes
   app.use('/jobs', jobsRouter);
   app.use('/system', systemRouter);
-  app.use('/events', (_req, res, next) => {
-    // Redirect /events to /system/events
-    systemRouter.handle(_req, res, next);
-  });
+  app.get('/events', sseHandler); // convenience alias for /system/events
   app.use('/internal', internalRouter);
 
   // Serve UI (static files from /ui at root)
