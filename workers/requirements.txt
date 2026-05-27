@@ -1,5 +1,14 @@
+# Runtime dependencies (pinned)
 redis==5.0.8
 boto3==1.35.14
-psycopg2-binary==2.9.9
 numpy==2.0.1
 requests==2.32.3
+pydantic==2.7.4
+pydantic-settings==2.3.0
+
+# Dev / test tools
+pytest==8.3.3
+pytest-cov==5.0.0
+pytest-mock==3.14.0
+ruff==0.5.7
+black==24.8.0

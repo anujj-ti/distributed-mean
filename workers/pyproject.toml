@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "distributed-mean-worker"
+version = "1.0.0"
+description = "Distributed Mean — Python worker"
+requires-python = ">=3.11"
+dependencies = [
+    "redis>=5.0.8",
+    "boto3>=1.35.14",
+    "numpy>=2.0.1",
+    "requests>=2.32.3",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-cov>=5.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.5.0",
+    "black>=24.4.0",
+    "mypy>=1.10.0",
+    "boto3-stubs[s3]>=1.35.0",
+    "types-requests>=2.32.0",
+    "types-redis>=4.6.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "PTH",  # flake8-use-pathlib
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "S101",   # Use of assert (OK in tests)
+    "S311",   # random not for cryptography — fine for our use
+    "BLE001", # blind except — intentional in worker main loop
+    "PERF203", # try-except in loop — intentional for resilience
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["worker"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=. --cov-report=term-missing --cov-fail-under=75"
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", "setup.py"]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
