@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Distributed Mean — Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #f1f5f9; }
+    h2 { font-size: 0.85rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.75rem; }
+
+    header { background: #1e293b; border-bottom: 1px solid #334155; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #64748b; transition: background 0.3s; }
+    .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    #status-label { font-size: 0.85rem; color: #64748b; }
+
+    main { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; padding: 1.25rem; max-width: 1400px; margin: 0 auto; }
+
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1.25rem; }
+
+    /* Stats row */
+    .stats-row { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; }
+    .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1rem; text-align: center; }
+    .stat-value { font-size: 2rem; font-weight: 700; color: #f1f5f9; line-height: 1; }
+    .stat-label { font-size: 0.72rem; color: #64748b; margin-top: 0.35rem; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* Worker fleet */
+    #workers-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; min-height: 60px; }
+    .worker-chip { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-family: monospace; background: #0f172a; border: 1px solid #334155; cursor: default; transition: border-color 0.2s; }
+    .worker-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .worker-chip.idle .dot { background: #22c55e; }
+    .worker-chip.busy .dot { background: #f59e0b; box-shadow: 0 0 4px #f59e0b; }
+    .worker-chip.idle { border-color: #166534; }
+    .worker-chip.busy { border-color: #92400e; }
+    .worker-speed { font-size: 0.7rem; color: #475569; margin-left: 0.25rem; }
+
+    /* Submit form */
+    .form-row { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; }
+    .form-group { display: flex; flex-direction: column; gap: 0.4rem; }
+    .form-group label { font-size: 0.8rem; color: #94a3b8; }
+    .form-hint { font-size: 0.7rem; color: #475569; margin-top: 0.25rem; }
+    input[type=number] { background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.9rem; width: 110px; }
+    input[type=number]:focus { outline: none; border-color: #6366f1; }
+    button.primary { background: #6366f1; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.9rem; cursor: pointer; font-weight: 600; }
+    button.primary:hover { background: #4f46e5; }
+    button.primary:disabled { background: #334155; cursor: not-allowed; }
+    #job-result { margin-top: 0.75rem; font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 6px; display: none; }
+    #job-result.success { background: #052e16; color: #86efac; border: 1px solid #166534; }
+    #job-result.error { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+
+    /* Charts */
+    .charts-row { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    .chart-wrap { position: relative; height: 160px; }
+
+    /* Jobs table */
+    .full-width { grid-column: 1 / -1; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.5rem 0.75rem; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e293b; vertical-align: middle; }
+    tr:hover td { background: #0f172a; }
+    tr.expandable { cursor: pointer; }
+    .expand-btn { font-size: 0.7rem; color: #6366f1; user-select: none; }
+    .task-row td { background: #0d1929; font-size: 0.78rem; }
+    .badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 12px; font-size: 0.72rem; font-weight: 600; }
+    .badge.generating { background: #1e3a5f; color: #93c5fd; }
+    .badge.queued    { background: #1c1917; color: #a8a29e; }
+    .badge.running   { background: #1c2a1c; color: #86efac; }
+    .badge.aggregating { background: #2d1b69; color: #c4b5fd; }
+    .badge.done      { background: #052e16; color: #4ade80; }
+    .badge.failed    { background: #450a0a; color: #f87171; }
+    .badge.pending   { background: #1c1917; color: #a8a29e; }
+    .progress-bar { height: 5px; background: #334155; border-radius: 3px; margin-top: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #6366f1, #8b5cf6); border-radius: 3px; transition: width 0.4s ease; }
+    .mono { font-family: monospace; font-size: 0.8rem; color: #94a3b8; }
+    .result-link { color: #6366f1; font-size: 0.8rem; text-decoration: none; }
+    .result-link:hover { text-decoration: underline; }
+
+    /* Log stream */
+    .log-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+    .log-filter { display: flex; gap: 0.4rem; }
+    .log-filter button { background: transparent; border: 1px solid #334155; color: #64748b; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.72rem; cursor: pointer; }
+    .log-filter button.active { background: #334155; color: #e2e8f0; }
+    #log-container { font-family: monospace; font-size: 0.76rem; height: 220px; overflow-y: auto; background: #020617; border-radius: 6px; padding: 0.75rem; }
+    .log-line { padding: 1px 0; line-height: 1.5; }
+    .log-line .ts { color: #475569; user-select: none; }
+    .log-line.info  .msg { color: #94a3b8; }
+    .log-line.warn  .msg { color: #fbbf24; }
+    .log-line.error .msg { color: #f87171; }
+    #no-jobs { color: #475569; text-align: center; padding: 2rem; font-size: 0.875rem; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      main { grid-template-columns: 1fr; }
+      .charts-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>⚡ Distributed Mean</h1>
+  </div>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:0.5rem;">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-label">Connecting...</span>
+  </div>
+</header>
+
+<main>
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value" id="stat-workers">—</div>
+      <div class="stat-label">Workers</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-idle" style="color:#22c55e">—</div>
+      <div class="stat-label">Idle</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-busy" style="color:#f59e0b">—</div>
+      <div class="stat-label">Busy</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-queue" style="color:#6366f1">—</div>
+      <div class="stat-label">Queue Depth</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-done" style="color:#22c55e">—</div>
+      <div class="stat-label">Jobs Done</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-total">—</div>
+      <div class="stat-label">Total Jobs</div>
+    </div>
+  </div>
+
+  <!-- Worker Fleet -->
+  <div class="card">
+    <h2>Worker Fleet</h2>
+    <div id="workers-grid"><span style="color:#475569;font-size:0.875rem;">No workers connected yet</span></div>
+  </div>
+
+  <!-- Submit Job -->
+  <div class="card">
+    <h2>Submit Job</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="input-f">Files (F)</label>
+        <input type="number" id="input-f" value="20" min="2" max="100000" />
+      </div>
+      <div class="form-group">
+        <label for="input-c">Values per file (C)</label>
+        <input type="number" id="input-c" value="100" min="1" max="10000" />
+      </div>
+      <div class="form-group">
+        <label>&nbsp;</label>
+        <button class="primary" id="submit-job" onclick="submitJob()">Submit</button>
+      </div>
+    </div>
+    <div class="form-hint" id="size-hint"></div>
+    <div id="job-result"></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-row">
+    <div class="card">
+      <h2>Queue Depth (2 min)</h2>
+      <div class="chart-wrap">
+        <canvas id="queue-chart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Tasks Completed / min</h2>
+      <div class="chart-wrap">
+        <canvas id="throughput-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Jobs Table -->
+  <div class="card full-width">
+    <h2>Jobs</h2>
+    <div id="jobs-container"><div id="no-jobs">No jobs yet — submit one above!</div></div>
+  </div>
+
+  <!-- Log Feed -->
+  <div class="card full-width">
+    <div class="log-header">
+      <h2 style="margin-bottom:0">Live Log</h2>
+      <div class="log-filter">
+        <button class="active" onclick="setFilter('all', this)">All</button>
+        <button onclick="setFilter('info', this)">Info</button>
+        <button onclick="setFilter('warn', this)">Warn</button>
+        <button onclick="setFilter('error', this)">Error</button>
+        <button onclick="clearLog()" style="margin-left:0.5rem">Clear</button>
+      </div>
+    </div>
+    <div id="log-container"></div>
+  </div>
+</main>
+
+<script>
+  // ---------------------------------------------------------------------------
+  // Configuration
+  // ---------------------------------------------------------------------------
+  const API_BASE = window.location.origin;
+  const CHART_WINDOW_MS = 120_000;  // 2 minutes
+  const CHART_INTERVAL_MS = 2_000;  // update every 2s
+  const MAX_LOG_LINES = 200;
+
+  // ---------------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------------
+  let workers = [];
+  let queueDepth = 0;
+  let jobs = {};
+  let logLines = [];
+  let logFilter = 'all';
+  let taskCompletedCount = 0;
+  let taskCountHistory = []; // { t, count }
+  let expandedJobs = new Set();
+
+  // ---------------------------------------------------------------------------
+  // Charts
+  // ---------------------------------------------------------------------------
+  const chartDefaults = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 200 },
+    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+    scales: {
+      x: { display: false },
+      y: {
+        beginAtZero: true,
+        grid: { color: '#1e293b' },
+        ticks: { color: '#64748b', font: { size: 10 } },
+      },
+    },
+  };
+
+  const queueChart = new Chart(document.getElementById('queue-chart'), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99,102,241,0.1)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+      }],
+    },
+    options: { ...chartDefaults },
+  });
+
+  const throughputChart = new Chart(document.getElementById('throughput-chart'), {
+    type: 'bar',
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        backgroundColor: 'rgba(34,197,94,0.5)',
+        borderColor: '#22c55e',
+        borderWidth: 1,
+      }],
+    },
+    options: { ...chartDefaults },
+  });
+
+  function addChartPoint(chart, time, value) {
+    const cutoff = Date.now() - CHART_WINDOW_MS;
+    // Remove old points
+    while (chart.data.labels.length > 0 && chart.data.labels[0] < cutoff) {
+      chart.data.labels.shift();
+      chart.data.datasets[0].data.shift();
+    }
+    chart.data.labels.push(time);
+    chart.data.datasets[0].data.push(value);
+    chart.update('none');
+  }
+
+  // Periodic chart updates
+  setInterval(() => {
+    const now = Date.now();
+    addChartPoint(queueChart, now, queueDepth);
+    // Compute tasks per minute window (last 60s)
+    const window60s = taskCountHistory.filter(p => now - p.t < 60_000).length;
+    addChartPoint(throughputChart, now, window60s);
+  }, CHART_INTERVAL_MS);
+
+  // ---------------------------------------------------------------------------
+  // SSE Connection
+  // ---------------------------------------------------------------------------
+  let es = null;
+  let reconnectTimer = null;
+
+  function connectSSE() {
+    if (es) { es.close(); es = null; }
+    clearTimeout(reconnectTimer);
+
+    es = new EventSource(`${API_BASE}/events`);
+
+    es.onopen = () => {
+      document.getElementById('status-dot').classList.add('connected');
+      document.getElementById('status-label').textContent = 'Connected';
+    };
+
+    es.onmessage = (e) => {
+      try { handleEvent(JSON.parse(e.data)); } catch {}
+    };
+
+    es.onerror = () => {
+      document.getElementById('status-dot').classList.remove('connected');
+      document.getElementById('status-label').textContent = 'Reconnecting...';
+      es.close();
+      reconnectTimer = setTimeout(connectSSE, 3000);
+    };
+  }
+
+  function handleEvent(event) {
+    switch (event.type) {
+      case 'worker_update':
+        workers = event.workers || [];
+        renderWorkers();
+        updateStats();
+        break;
+      case 'job_update':
+        if (event.job && event.job.id) {
+          jobs[event.job.id] = { ...(jobs[event.job.id] || {}), ...event.job };
+          renderJobs();
+          updateStats();
+        }
+        break;
+      case 'queue_depth':
+        queueDepth = event.depth ?? 0;
+        updateStats();
+        break;
+      case 'log':
+        addLog(event.level || 'info', event.message, event.timestamp);
+        break;
+      case 'task_completed':
+        taskCompletedCount++;
+        taskCountHistory.push({ t: Date.now() });
+        break;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Worker Fleet Rendering
+  // ---------------------------------------------------------------------------
+  function renderWorkers() {
+    const grid = document.getElementById('workers-grid');
+    if (!workers || workers.length === 0) {
+      grid.innerHTML = '<span style="color:#475569;font-size:0.875rem;">No workers connected yet</span>';
+      return;
+    }
+    grid.innerHTML = workers.map(w => {
+      const shortId = w.id.substring(0, 8);
+      const taskLabel = w.currentTaskId
+        ? `<span style="color:#64748b;font-size:0.7rem">→ task:${w.currentTaskId.substring(0,6)}</span>`
+        : '';
+      return `<div class="worker-chip ${w.status}" title="${w.id}">
+        <div class="dot"></div>
+        <span>${shortId}</span>
+        <span class="worker-speed">${w.status}</span>
+        ${taskLabel}
+      </div>`;
+    }).join('');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Jobs Table Rendering
+  // ---------------------------------------------------------------------------
+  function renderJobs() {
+    const container = document.getElementById('jobs-container');
+    const jobList = Object.values(jobs).sort((a, b) =>
+      new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+    );
+    if (jobList.length === 0) {
+      container.innerHTML = '<div id="no-jobs">No jobs yet — submit one above!</div>';
+      return;
+    }
+
+    const rows = jobList.flatMap(j => {
+      const pct = j.batchCount ? Math.round(((j.completedBatches || 0) / j.batchCount) * 100) : 0;
+      const elapsed = j.createdAt ? formatElapsed(j.createdAt, j.completedAt) : '—';
+      const isExpanded = expandedJobs.has(j.id);
+      const expandIcon = isExpanded ? '▾' : '▸';
+
+      const mainRow = `<tr class="expandable" onclick="toggleTasks('${j.id}')">
+        <td><span class="expand-btn">${expandIcon}</span> <span class="mono">${(j.id || '?').substring(0,8)}</span></td>
+        <td><span class="badge ${j.status}">${j.status}</span></td>
+        <td>${j.f || '—'}</td>
+        <td>${j.c || '—'}</td>
+        <td>
+          <span style="font-size:0.78rem;">${j.completedBatches || 0}/${j.batchCount || '?'}</span>
+          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        </td>
+        <td class="mono">${elapsed}</td>
+        <td>${j.status === 'done'
+          ? `<a class="result-link" href="${API_BASE}/jobs/${j.id}/result" download>⬇ CSV</a>`
+          : '—'}</td>
+      </tr>`;
+
+      const taskRows = isExpanded && j.tasks
+        ? j.tasks.map(t => `<tr class="task-row">
+          <td colspan="1" style="padding-left:2.5rem;"><span class="mono" style="font-size:0.72rem;">${(t.id||'').substring(0,8)}</span></td>
+          <td><span class="badge ${t.status}">${t.status}</span></td>
+          <td colspan="2" style="color:#64748b;font-size:0.75rem">files ${t.fileStart}–${t.fileEnd}</td>
+          <td style="color:#475569;font-size:0.75rem">${t.workerId ? t.workerId.substring(0,8) : '—'}</td>
+          <td class="mono" style="font-size:0.72rem;">${t.completedAt ? formatElapsed(t.startedAt, t.completedAt) : t.startedAt ? 'running…' : '—'}</td>
+          <td></td>
+        </tr>`).join('')
+        : '';
+
+      return mainRow + taskRows;
+    }).join('');
+
+    container.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Job ID</th><th>Status</th><th>F</th><th>C</th>
+          <th>Progress</th><th>Duration</th><th>Result</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  async function toggleTasks(jobId) {
+    if (expandedJobs.has(jobId)) {
+      expandedJobs.delete(jobId);
+    } else {
+      expandedJobs.add(jobId);
+      // Fetch tasks if not loaded yet
+      if (!jobs[jobId].tasks) {
+        try {
+          const resp = await fetch(`${API_BASE}/jobs/${jobId}/tasks`);
+          const data = await resp.json();
+          if (jobs[jobId]) jobs[jobId].tasks = data.tasks || [];
+        } catch {}
+      }
+    }
+    renderJobs();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stats
+  // ---------------------------------------------------------------------------
+  function updateStats() {
+    const idle = workers.filter(w => w.status === 'idle').length;
+    const busy = workers.filter(w => w.status === 'busy').length;
+    const allJobs = Object.values(jobs);
+    const done = allJobs.filter(j => j.status === 'done').length;
+
+    document.getElementById('stat-workers').textContent = workers.length;
+    document.getElementById('stat-idle').textContent = idle;
+    document.getElementById('stat-busy').textContent = busy;
+    document.getElementById('stat-queue').textContent = queueDepth;
+    document.getElementById('stat-done').textContent = done;
+    document.getElementById('stat-total').textContent = allJobs.length;
+  }
+
+  function formatElapsed(start, end) {
+    if (!start) return '—';
+    const ms = (end ? new Date(end) : new Date()) - new Date(start);
+    if (ms < 0) return '—';
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms/1000).toFixed(1)}s`;
+    return `${Math.floor(ms/60000)}m ${Math.floor((ms%60000)/1000)}s`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Log Feed
+  // ---------------------------------------------------------------------------
+  function addLog(level, message, timestamp) {
+    const ts = timestamp
+      ? new Date(timestamp).toLocaleTimeString()
+      : new Date().toLocaleTimeString();
+    logLines.push({ level, message, ts });
+    if (logLines.length > MAX_LOG_LINES) logLines.shift();
+
+    const container = document.getElementById('log-container');
+    if (logFilter !== 'all' && level !== logFilter) return;
+
+    const div = document.createElement('div');
+    div.className = `log-line ${level}`;
+    div.dataset.level = level;
+    div.innerHTML = `<span class="ts">${ts}</span> <span class="msg">${escapeHtml(message)}</span>`;
+    container.appendChild(div);
+
+    if (container.scrollHeight - container.scrollTop < container.clientHeight + 50) {
+      container.scrollTop = container.scrollHeight;
+    }
+    while (container.children.length > MAX_LOG_LINES) {
+      container.removeChild(container.firstChild);
+    }
+  }
+
+  function setFilter(level, btn) {
+    logFilter = level;
+    document.querySelectorAll('.log-filter button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Re-render log from buffer
+    const container = document.getElementById('log-container');
+    container.innerHTML = '';
+    logLines
+      .filter(l => level === 'all' || l.level === level)
+      .forEach(l => addLog(l.level, l.message, null));
+  }
+
+  function clearLog() {
+    logLines = [];
+    document.getElementById('log-container').innerHTML = '';
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Job Submission
+  // ---------------------------------------------------------------------------
+  // Size hint preview
+  const fInput = document.getElementById('input-f');
+  const cInput = document.getElementById('input-c');
+  function updateSizeHint() {
+    const f = parseInt(fInput.value) || 0;
+    const c = parseInt(cInput.value) || 0;
+    if (f && c) {
+      const bytes = f * c * 9; // approx bytes per CSV file (8 chars + newline)
+      const batches = Math.ceil(f / 5);
+      const hint = `~${formatBytes(bytes)} total · ${batches} batch${batches === 1 ? '' : 'es'}`;
+      document.getElementById('size-hint').textContent = hint;
+    }
+  }
+  fInput.addEventListener('input', updateSizeHint);
+  cInput.addEventListener('input', updateSizeHint);
+  updateSizeHint();
+
+  function formatBytes(b) {
+    if (b < 1024) return `${b}B`;
+    if (b < 1024*1024) return `${(b/1024).toFixed(1)}KB`;
+    return `${(b/1024/1024).toFixed(1)}MB`;
+  }
+
+  async function submitJob() {
+    const f = parseInt(fInput.value);
+    const c = parseInt(cInput.value);
+    const btn = document.getElementById('submit-job');
+
+    if (!f || !c || f < 2 || c < 1) {
+      showJobResult('error', 'Invalid F or C — F≥2, C≥1');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+
+    try {
+      const resp = await fetch(`${API_BASE}/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ F: f, C: c }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        jobs[data.jobId] = { id: data.jobId, ...data };
+        renderJobs();
+        showJobResult('success', `Job ${data.jobId.substring(0,8)}… created — ${data.batchCount} batches`);
+        addLog('info', `Submitted job ${data.jobId.substring(0,8)} (F=${f}, C=${c})`);
+      } else {
+        showJobResult('error', data.error || 'Submission failed');
+      }
+    } catch (err) {
+      showJobResult('error', `Network error: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Submit';
+    }
+  }
+
+  function showJobResult(type, message) {
+    const el = document.getElementById('job-result');
+    el.className = type;
+    el.textContent = message;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 6000);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Initial Data Load
+  // ---------------------------------------------------------------------------
+  async function loadInitialData() {
+    try {
+      const [jobsResp, sysResp] = await Promise.all([
+        fetch(`${API_BASE}/jobs`).then(r => r.json()),
+        fetch(`${API_BASE}/system`).then(r => r.json()),
+      ]);
+      (jobsResp.jobs || []).forEach(j => { jobs[j.id] = j; });
+      workers = sysResp.workers || [];
+      queueDepth = sysResp.queueDepth || 0;
+      renderJobs();
+      renderWorkers();
+      updateStats();
+    } catch (err) {
+      addLog('warn', `Initial load failed: ${err.message}`);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------------
+  loadInitialData();
+  connectSSE();
+
+  // Polling fallback (every 5s)
+  setInterval(async () => {
+    try {
+      const s = await fetch(`${API_BASE}/system`).then(r => r.json());
+      workers = s.workers || [];
+      queueDepth = s.queueDepth ?? 0;
+      renderWorkers();
+      updateStats();
+    } catch {}
+  }, 5000);
+</script>
+</body>
+</html>
