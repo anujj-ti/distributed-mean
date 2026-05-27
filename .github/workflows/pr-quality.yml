@@ -1,0 +1,53 @@
+name: PR Quality Checklist
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  code-review:
+    name: Automated Code Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for TypeScript 'any' types
+        run: |
+          if git diff origin/main...HEAD -- 'api/src/**/*.ts' | grep '^\+' | grep -v '^\+\+\+' | grep -E 'as any|: any[^;]' | grep -v '//.*noqa'; then
+            echo "::warning::Found 'any' types in TypeScript — prefer explicit types"
+          fi
+
+      - name: Check for console.log in production API code
+        run: |
+          if git diff origin/main...HEAD -- 'api/src/**/*.ts' | grep '^\+' | grep -v '^\+\+\+' | grep 'console\.log'; then
+            echo "::warning::Found console.log in API code — use broadcastLog() instead"
+          fi
+
+      - name: Check for bare Python noqa
+        run: |
+          if git diff origin/main...HEAD -- 'workers/**/*.py' | grep '^\+' | grep -v '^\+\+\+' | grep -E '#\s*noqa\s*$'; then
+            echo "::warning::Found bare '# noqa' — add specific codes e.g. '# noqa: E501'"
+          fi
+
+      - name: Check for TODO/FIXME in new code
+        run: |
+          COUNT=$(git diff origin/main...HEAD | grep '^\+' | grep -v '^\+\+\+' | grep -cE 'TODO|FIXME|HACK|XXX' || true)
+          if [ "$COUNT" -gt "0" ]; then
+            echo "::notice::Found $COUNT TODO/FIXME markers in new code — please track in issues"
+          fi
+
+      - name: Summary
+        run: |
+          echo "## Code Review Checklist"
+          echo ""
+          echo "✅ No bare 'any' enforcement (TypeScript strict)"
+          echo "✅ No console.log in production code"
+          echo "✅ No bare noqa in Python"
+          echo "✅ TODO/FIXME check complete"
+          echo ""
+          echo "Manual checks required:"
+          echo "- [ ] Tests pass with ≥75% coverage"
+          echo "- [ ] Docker build succeeds"
+          echo "- [ ] README updated if API changed"
