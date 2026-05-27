@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Distributed Mean — Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #f1f5f9; }
+    h2 { font-size: 1rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+
+    header { background: #1e293b; border-bottom: 1px solid #334155; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #64748b; }
+    .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    #status-label { font-size: 0.85rem; color: #64748b; }
+
+    main { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto 1fr; gap: 1.25rem; padding: 1.25rem; max-width: 1400px; margin: 0 auto; }
+
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1.25rem; }
+
+    /* Stats row */
+    .stats-row { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
+    .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1rem; text-align: center; }
+    .stat-value { font-size: 2rem; font-weight: 700; color: #f1f5f9; }
+    .stat-label { font-size: 0.75rem; color: #64748b; margin-top: 0.25rem; }
+
+    /* Workers */
+    #workers-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; min-height: 60px; }
+    .worker-chip { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-family: monospace; background: #0f172a; border: 1px solid #334155; }
+    .worker-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .worker-chip.idle .dot { background: #22c55e; }
+    .worker-chip.busy .dot { background: #f59e0b; box-shadow: 0 0 4px #f59e0b; }
+    .worker-chip.idle { border-color: #166534; }
+    .worker-chip.busy { border-color: #92400e; }
+    #workers-empty { color: #475569; font-size: 0.875rem; padding: 1rem 0; }
+
+    /* New Job form */
+    .form-row { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; }
+    .form-group { display: flex; flex-direction: column; gap: 0.4rem; }
+    label { font-size: 0.8rem; color: #94a3b8; }
+    input[type=number] { background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.9rem; width: 110px; }
+    input[type=number]:focus { outline: none; border-color: #6366f1; }
+    button { background: #6366f1; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-size: 0.9rem; cursor: pointer; font-weight: 600; height: 36px; }
+    button:hover { background: #4f46e5; }
+    button:disabled { background: #334155; cursor: not-allowed; }
+    #job-result { margin-top: 0.75rem; font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 6px; }
+    #job-result.success { background: #052e16; color: #86efac; border: 1px solid #166534; }
+    #job-result.error { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+
+    /* Jobs table */
+    .full-width { grid-column: 1 / -1; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.5rem 0.75rem; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; }
+    td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e293b; }
+    tr:hover td { background: #0f172a; }
+    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+    .badge.generating { background: #1e3a5f; color: #93c5fd; }
+    .badge.queued { background: #1c1917; color: #a8a29e; }
+    .badge.running { background: #1c2a1c; color: #86efac; }
+    .badge.aggregating { background: #2d1b69; color: #c4b5fd; }
+    .badge.done { background: #052e16; color: #4ade80; }
+    .badge.failed { background: #450a0a; color: #f87171; }
+    .progress-bar { height: 6px; background: #334155; border-radius: 3px; margin-top: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #6366f1; border-radius: 3px; transition: width 0.3s ease; }
+    .mono { font-family: monospace; font-size: 0.8rem; color: #94a3b8; }
+
+    /* Log stream */
+    #log-container { font-family: monospace; font-size: 0.78rem; height: 250px; overflow-y: auto; background: #020617; border-radius: 6px; padding: 0.75rem; }
+    .log-line { padding: 1px 0; line-height: 1.5; }
+    .log-line .ts { color: #475569; }
+    .log-line.info .msg { color: #94a3b8; }
+    .log-line.warn .msg { color: #fbbf24; }
+    .log-line.error .msg { color: #f87171; }
+
+    #no-jobs { color: #475569; text-align: center; padding: 2rem; font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>⚡ Distributed Mean</h1>
+  </div>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:0.5rem;">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-label">Connecting...</span>
+  </div>
+</header>
+
+<main>
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-value" id="stat-workers">—</div>
+      <div class="stat-label">Workers</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-idle" style="color:#22c55e">—</div>
+      <div class="stat-label">Idle</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-busy" style="color:#f59e0b">—</div>
+      <div class="stat-label">Busy</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-queue" style="color:#6366f1">—</div>
+      <div class="stat-label">Queue Depth</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-done" style="color:#4ade80">—</div>
+      <div class="stat-label">Jobs Done</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-total">—</div>
+      <div class="stat-label">Total Jobs</div>
+    </div>
+  </div>
+
+  <!-- Workers panel -->
+  <div class="card">
+    <h2>Workers</h2>
+    <div id="workers-grid">
+      <span id="workers-empty">No workers connected yet</span>
+    </div>
+  </div>
+
+  <!-- New Job form -->
+  <div class="card">
+    <h2>Submit New Job</h2>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="input-f">F (files)</label>
+        <input type="number" id="input-f" value="20" min="2" max="100000" />
+      </div>
+      <div class="form-group">
+        <label for="input-c">C (values per file)</label>
+        <input type="number" id="input-c" value="10" min="1" max="10000" />
+      </div>
+      <button id="submit-job" onclick="submitJob()">Submit</button>
+    </div>
+    <div id="job-result" style="display:none"></div>
+  </div>
+
+  <!-- Jobs table -->
+  <div class="card full-width">
+    <h2>Jobs</h2>
+    <div id="jobs-container">
+      <div id="no-jobs">No jobs yet — submit one above!</div>
+    </div>
+  </div>
+
+  <!-- Log stream -->
+  <div class="card full-width">
+    <h2>Live Log</h2>
+    <div id="log-container"></div>
+  </div>
+</main>
+
+<script>
+  const API_BASE = window.location.origin;
+  let jobs = {};
+  let workers = [];
+  let queueDepth = 0;
+  let jobStats = { total: 0, done: 0 };
+  let eventSource = null;
+  let reconnectTimeout = null;
+
+  // -----------------------------------------------------------------------
+  // SSE Connection
+  // -----------------------------------------------------------------------
+  function connectSSE() {
+    if (eventSource) { eventSource.close(); }
+    eventSource = new EventSource(`${API_BASE}/events`);
+
+    eventSource.onopen = () => {
+      setConnected(true);
+      addLog('info', 'Connected to event stream');
+    };
+
+    eventSource.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        handleEvent(event);
+      } catch {}
+    };
+
+    eventSource.onerror = () => {
+      setConnected(false);
+      eventSource.close();
+      addLog('warn', 'Connection lost — reconnecting in 3s...');
+      reconnectTimeout = setTimeout(connectSSE, 3000);
+    };
+  }
+
+  function setConnected(connected) {
+    document.getElementById('status-dot').className = 'status-dot' + (connected ? ' connected' : '');
+    document.getElementById('status-label').textContent = connected ? 'Connected' : 'Disconnected';
+  }
+
+  function handleEvent(event) {
+    switch (event.type) {
+      case 'worker_update':
+        workers = event.workers || [];
+        renderWorkers();
+        updateStats();
+        break;
+      case 'job_update':
+        if (event.job && event.job.id) {
+          jobs[event.job.id] = { ...(jobs[event.job.id] || {}), ...event.job };
+          renderJobs();
+          updateStats();
+        }
+        break;
+      case 'queue_depth':
+        queueDepth = event.depth || 0;
+        updateStats();
+        break;
+      case 'log':
+        addLog(event.level || 'info', event.message, event.timestamp);
+        break;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Rendering
+  // -----------------------------------------------------------------------
+  function renderWorkers() {
+    const grid = document.getElementById('workers-grid');
+    const empty = document.getElementById('workers-empty');
+    if (!workers || workers.length === 0) {
+      grid.innerHTML = '';
+      grid.appendChild(empty || Object.assign(document.createElement('span'), {
+        id: 'workers-empty', className: '', textContent: 'No workers connected yet'
+      }));
+      return;
+    }
+    grid.innerHTML = workers.map(w => `
+      <div class="worker-chip ${w.status}">
+        <div class="dot"></div>
+        <span>${w.id.substring(0, 8)}</span>
+        <span style="color:#475569">${w.status}</span>
+        ${w.currentTaskId ? `<span style="color:#64748b;font-size:0.7rem">→ ${w.currentTaskId.substring(0,8)}</span>` : ''}
+      </div>
+    `).join('');
+  }
+
+  function renderJobs() {
+    const container = document.getElementById('jobs-container');
+    const jobList = Object.values(jobs).sort((a, b) =>
+      new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+    );
+    if (jobList.length === 0) {
+      container.innerHTML = '<div id="no-jobs">No jobs yet — submit one above!</div>';
+      return;
+    }
+    const rows = jobList.map(j => {
+      const pct = j.batchCount ? Math.round((j.completedBatches / j.batchCount) * 100) : 0;
+      const elapsed = j.createdAt ? formatElapsed(j.createdAt, j.completedAt) : '—';
+      return `
+        <tr>
+          <td class="mono">${j.id ? j.id.substring(0,8) : '—'}</td>
+          <td><span class="badge ${j.status}">${j.status}</span></td>
+          <td>${j.f || '—'}</td>
+          <td>${j.c || '—'}</td>
+          <td>
+            ${j.completedBatches || 0}/${j.batchCount || '?'}
+            <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+          </td>
+          <td class="mono">${elapsed}</td>
+          <td>${j.status === 'done' ? `<a href="${API_BASE}/jobs/${j.id}/result" style="color:#6366f1;font-size:0.8rem">⬇ result</a>` : '—'}</td>
+        </tr>`;
+    }).join('');
+    container.innerHTML = `
+      <table>
+        <thead><tr><th>ID</th><th>Status</th><th>F</th><th>C</th><th>Progress</th><th>Time</th><th>Result</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function updateStats() {
+    const idle = workers.filter(w => w.status === 'idle').length;
+    const busy = workers.filter(w => w.status === 'busy').length;
+    const allJobs = Object.values(jobs);
+    const done = allJobs.filter(j => j.status === 'done').length;
+
+    document.getElementById('stat-workers').textContent = workers.length;
+    document.getElementById('stat-idle').textContent = idle;
+    document.getElementById('stat-busy').textContent = busy;
+    document.getElementById('stat-queue').textContent = queueDepth;
+    document.getElementById('stat-done').textContent = done;
+    document.getElementById('stat-total').textContent = allJobs.length;
+  }
+
+  function formatElapsed(start, end) {
+    const s = new Date(start);
+    const e = end ? new Date(end) : new Date();
+    const ms = e - s;
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms/1000).toFixed(1)}s`;
+    return `${Math.floor(ms/60000)}m ${Math.floor((ms%60000)/1000)}s`;
+  }
+
+  // -----------------------------------------------------------------------
+  // Log
+  // -----------------------------------------------------------------------
+  const MAX_LOG_LINES = 200;
+  let logLines = [];
+
+  function addLog(level, message, timestamp) {
+    const ts = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+    logLines.push({ level, message, ts });
+    if (logLines.length > MAX_LOG_LINES) logLines.shift();
+    const container = document.getElementById('log-container');
+    const div = document.createElement('div');
+    div.className = `log-line ${level}`;
+    div.innerHTML = `<span class="ts">${ts}</span> <span class="msg">${escapeHtml(message)}</span>`;
+    container.appendChild(div);
+    // Auto-scroll if near bottom
+    if (container.scrollHeight - container.scrollTop < container.clientHeight + 50) {
+      container.scrollTop = container.scrollHeight;
+    }
+    // Trim
+    while (container.children.length > MAX_LOG_LINES) {
+      container.removeChild(container.firstChild);
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // -----------------------------------------------------------------------
+  // Submit Job
+  // -----------------------------------------------------------------------
+  async function submitJob() {
+    const f = parseInt(document.getElementById('input-f').value);
+    const c = parseInt(document.getElementById('input-c').value);
+    const btn = document.getElementById('submit-job');
+    const resultEl = document.getElementById('job-result');
+
+    if (!f || !c || f < 2 || c < 1) {
+      showJobResult('error', 'Invalid F or C values');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    try {
+      const resp = await fetch(`${API_BASE}/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ F: f, C: c }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        jobs[data.jobId] = { id: data.jobId, ...data };
+        renderJobs();
+        showJobResult('success', `Job ${data.jobId.substring(0,8)} created — ${data.batchCount} batches queued`);
+        addLog('info', `Submitted job ${data.jobId.substring(0,8)} (F=${f}, C=${c})`);
+      } else {
+        showJobResult('error', data.error || 'Submission failed');
+      }
+    } catch (err) {
+      showJobResult('error', `Network error: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Submit';
+    }
+  }
+
+  function showJobResult(type, message) {
+    const el = document.getElementById('job-result');
+    el.className = type;
+    el.textContent = message;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
+  }
+
+  // -----------------------------------------------------------------------
+  // Initial load
+  // -----------------------------------------------------------------------
+  async function loadInitialData() {
+    try {
+      const [jobsResp, sysResp] = await Promise.all([
+        fetch(`${API_BASE}/jobs`).then(r => r.json()),
+        fetch(`${API_BASE}/system`).then(r => r.json()),
+      ]);
+      (jobsResp.jobs || []).forEach(j => { jobs[j.id] = j; });
+      workers = sysResp.workers || [];
+      queueDepth = sysResp.queueDepth || 0;
+      renderJobs();
+      renderWorkers();
+      updateStats();
+    } catch (err) {
+      addLog('warn', `Failed to load initial data: ${err.message}`);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Init
+  // -----------------------------------------------------------------------
+  loadInitialData();
+  connectSSE();
+
+  // Periodic refresh as fallback
+  setInterval(async () => {
+    try {
+      const sysResp = await fetch(`${API_BASE}/system`).then(r => r.json());
+      workers = sysResp.workers || [];
+      queueDepth = sysResp.queueDepth || 0;
+      renderWorkers();
+      updateStats();
+    } catch {}
+  }, 5000);
+</script>
+</body>
+</html>
